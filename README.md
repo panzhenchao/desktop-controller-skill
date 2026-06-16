@@ -7,6 +7,54 @@
 
 **What GPT-5.4 does in the cloud, this skill does locally.** OpenAI's GPT-5.4 introduced "computer use" — the ability to control computers via Playwright and mouse/keyboard commands. Their `playwright-interactive` Codex skill enables visual debugging of web and Electron apps. **We go further**: our dual-engine approach adds **native Windows desktop automation** (Win32 API) alongside Playwright, letting you control apps like WeChat, DingTalk, and QQ that browser-based solutions simply can't reach.
 
+## Fork Background: AIjia IM Real Client Acceptance
+
+### 中文说明：我们要做什么
+
+这个 fork 的目标，是把 `desktop-controller-skill` 改造成 AIjia IM 小队里的“真机联调官”能力底座。它不是用来替代钉钉、企微、飞书、微信的开放 API，而是用来操作一台真实 Windows 电脑上的真实 IM 客户端，检查用户最终看到的效果。
+
+这个项目本身做的是“桌面控制”：
+
+- 找到并激活 Windows 桌面应用窗口。
+- 用键盘、鼠标、剪贴板操作真实客户端。
+- 支持中文文本粘贴和发送。
+- 支持窗口截图、全屏截图、区域截图和多屏截图。
+- 对网页场景使用 Playwright，对原生桌面应用使用 Win32 自动化。
+
+我们要用它做的是“IM 真实客户端验收”：
+
+- 后端或 API 负责生成机器人消息、卡片、附件、@人、按钮等 payload。
+- 这个工具负责打开真实 IM 客户端，进入目标联系人或测试群。
+- 先截图确认当前会话正确，再发送或点击。
+- 发送后再次截图，作为验收证据。
+- 最终判断“真实用户在客户端里看到的效果是否正确”。
+
+它不适合和用户日常办公共用同一台电脑长期跑，因为它会真实占用鼠标、键盘、剪贴板和窗口焦点。长期使用时，建议给 `AIjia IM 真机联调官` 单独准备一台 Windows 测试机。
+
+This fork is being adapted as the desktop automation base for the AIjia IM team. The goal is not only to call IM APIs or robot webhooks, but to verify what a real Windows client actually shows after a robot message, card, mention, attachment, or button action is sent.
+
+The original project provides the desktop-control primitives:
+
+- Find and activate native Windows app windows.
+- Send keyboard shortcuts and paste Chinese text safely through the clipboard.
+- Click real screen coordinates.
+- Capture full-screen, app-window, or region screenshots.
+- Use Playwright for web pages where DOM selectors are available.
+
+Our IM acceptance use case adds a stricter workflow on top:
+
+1. API or backend code creates the expected IM payload.
+2. This tool opens the real IM client, such as DingTalk, WeCom, Feishu, or WeChat.
+3. It focuses the target contact or test group and saves a screenshot before sending.
+4. A human or vision model confirms the active chat is correct.
+5. It sends or interacts with the current chat.
+6. It captures post-action screenshots as evidence.
+7. The evidence is stored under `artifacts/im-realtest/<app>/<case-id>/`.
+
+This matters because API success does not prove client-side correctness. Real-client acceptance is for things such as card layout, visible @ mentions, button status, attachment entry points, markdown rendering, and whether the message is usable by a real user.
+
+For stable team usage, run this on a dedicated Windows test machine. The machine should stay logged in to the target IM clients and should not be used manually while GUI tests are running, because desktop automation controls the real mouse, keyboard, clipboard, and window focus.
+
 ## Why This Exists
 
 | | OpenAI Codex | Claude Code + This Skill |
@@ -28,7 +76,7 @@ $ python scripts/desktop_control.py list-apps
 Supported applications:
   weixin       WeChat                process=Weixin       mode=win32   search=Ctrl+F
   wxwork       WeCom (企业微信)        process=WXWork       mode=win32   search=Ctrl+F
-  dingtalk     DingTalk (钉钉)        process=DingTalk     mode=win32   search=Ctrl+K
+  dingtalk     DingTalk (钉钉)        process=DingTalk     mode=win32   search=Ctrl+Shift+F
   feishu       Feishu/Lark (飞书)     process=Feishu       mode=win32   search=Ctrl+K
   qq           QQ                    process=QQ           mode=win32   search=Ctrl+F
   telegram     Telegram              process=Telegram     mode=win32   search=Ctrl+K
@@ -68,7 +116,7 @@ $ python scripts/desktop_control.py send-message --app weixin --contact "文件�
 |-----|---------|------------|--------|
 | **WeChat** (微信) | Weixin | Ctrl+F | Tested & Verified |
 | **WeCom** (企业微信) | WXWork | Ctrl+F | Ready |
-| **DingTalk** (钉钉) | DingTalk | Ctrl+K | Ready |
+| **DingTalk** (钉钉) | DingTalk | Ctrl+Shift+F | Ready |
 | **Feishu/Lark** (飞书) | Feishu | Ctrl+K | Ready |
 | **QQ** | QQ | Ctrl+F | Ready |
 | **Telegram** | Telegram | Ctrl+K | Ready |
@@ -102,11 +150,23 @@ Just tell Claude Code what you want:
 # Send a message via any chat app
 python scripts/desktop_control.py send-message --app weixin --contact "张三" --message "你好"
 
+# Open a chat candidate without sending, then save a verification screenshot
+python scripts/desktop_control.py focus-chat --app dingtalk --contact "张三" --output verify.png
+
+# After visually confirming the active chat, send to the currently selected chat
+python scripts/desktop_control.py send-current-chat --app dingtalk --message "你好"
+
 # Screenshot an app window
 python scripts/desktop_control.py screenshot --app weixin --output wechat.png
 
 # Full screen screenshot
 python scripts/desktop_control.py screenshot --output screen.png
+
+# Full virtual desktop screenshot across monitors
+python scripts/desktop_control.py screenshot --virtual-screen --output virtual-screen.png
+
+# Region screenshot
+python scripts/desktop_control.py screenshot --x 100 --y 100 --width 800 --height 600 --output region.png
 
 # Click at coordinates
 python scripts/desktop_control.py click --app weixin --x 500 --y 400
@@ -120,6 +180,35 @@ python scripts/desktop_control.py find-window --app feishu
 # List all supported apps
 python scripts/desktop_control.py list-apps
 ```
+
+### Real IM Client Acceptance Workflow
+
+For real IM testing, do not treat the desktop client as a background API. This skill controls the real Windows desktop: mouse, keyboard, clipboard, focus, and the logged-in IM client window. If a user is using the same PC at the same time, both sides can steal focus from each other.
+
+Recommended safe flow:
+
+```bash
+# 1. Open the target chat and save evidence. No message is sent.
+python scripts/desktop_control.py focus-chat --app dingtalk --contact "张三" --output artifacts/im-realtest/dingtalk/focus.png
+
+# 2. Human or vision model checks the screenshot and confirms the active chat.
+
+# 3. Send only after the active chat is confirmed.
+python scripts/desktop_control.py send-current-chat --app dingtalk --message "desktop-controller-skill real client smoke test"
+
+# 4. Capture the post-send evidence.
+python scripts/desktop_control.py screenshot --app dingtalk --output artifacts/im-realtest/dingtalk/sent.png
+```
+
+For long-running robot, card, mention, attachment, and button acceptance tests, use a dedicated Windows test machine:
+
+- Keep DingTalk, WeCom, Feishu, WeChat, and other target clients logged in.
+- Do not use the machine manually while GUI tests are running.
+- Save every test run under `artifacts/im-realtest/<app>/<case-id>/`.
+- Put a unique `case_id` in each robot message so screenshots can be tied back to API logs.
+- Let APIs create the message payload; let this tool verify what the real client actually rendered.
+
+This is especially useful for checks that pure API tests cannot cover: card layout, button state, visible @ mentions, attachment entry points, client-side rendering, and screenshot evidence.
 
 ### Command Line — Playwright Engine
 
@@ -186,6 +275,12 @@ Windows clipboard can be locked by other processes. Always:
 1. `Clipboard.Clear()` before `SetText()`
 2. Retry up to 5 times with 300ms delay
 3. 100ms pause between Clear and Set
+
+### Why Some Hotkeys Need Low-Level Keyboard Events
+
+`System.Windows.Forms.SendKeys` is convenient, but native IM clients can miss simulated hotkeys when focus is not fully settled or when a search overlay has not finished opening. DingTalk search is one such case on some Windows clients. For one-key hotkeys such as `Ctrl+Shift+F`, this skill uses Win32 `keybd_event` to send a lower-level key down/up sequence, then pastes text via the clipboard.
+
+Even with the lower-level path, GUI automation should keep a screenshot verification step before sending real messages.
 
 ## Installation
 

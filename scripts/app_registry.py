@@ -48,8 +48,8 @@ APPS = {
         "aliases": ["dingtalk", "dingding", "钉钉"],
         "process": "DingTalk",
         "mode": "win32",
-        "search_key": "^k",
-        "search_key_display": "Ctrl+K",
+        "search_key": "^+f",
+        "search_key_display": "Ctrl+Shift+F",
         "input_area": {"x_ratio": 0.65, "y_ratio_from_bottom": 0.12},
         "timings": {
             "activate": 1000,
